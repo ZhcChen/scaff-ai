@@ -1,0 +1,20 @@
+{
+  "name": "scaff-ai",
+  "version": "0.1.0",
+  "private": true,
+  "workspaces": [
+    "api",
+    "admin",
+    "web-app"
+  ],
+  "scripts": {
+    "dev": "bun run dev:api & bun run dev:admin & bun run dev:web-app",
+    "dev:api": "bun --cwd api run dev",
+    "dev:admin": "bun --cwd admin run dev",
+    "dev:web-app": "bun --cwd web-app run dev",
+    "build": "bun run build:api && bun run build:admin && bun run build:web-app",
+    "build:api": "bun --cwd api run build",
+    "build:admin": "bun --cwd admin run build",
+    "build:web-app": "bun --cwd web-app run build"
+  }
+}

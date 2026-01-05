@@ -1,0 +1,19 @@
+{
+  "name": "@scaff-ai/web-app",
+  "type": "module",
+  "scripts": {
+    "dev": "nuxt dev --port 7002",
+    "build": "nuxt build",
+    "generate": "nuxt generate",
+    "preview": "nuxt preview"
+  },
+  "dependencies": {
+    "nuxt": "^3.17.0",
+    "vue": "^3.5.0"
+  },
+  "devDependencies": {
+    "@nuxt/devtools": "^2.0.0",
+    "typescript": "^5.7.0",
+    "vue-tsc": "^2.2.0"
+  }
+}
