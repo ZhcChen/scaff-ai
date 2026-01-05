@@ -26,8 +26,8 @@
 
 | 层级 | 类型 | 覆盖范围 | 工具 | 数量占比 |
 |------|------|----------|------|----------|
-| L1 | 单元测试 | 纯函数、工具类、Service 方法 | node:test / Vitest | 70% |
-| L2 | 集成测试 | API 端点、数据库交互、外部服务 | Supertest / Go | 20% |
+| L1 | 单元测试 | 纯函数、工具类、Service 方法 | Bun test / node:test | 70% |
+| L2 | 集成测试 | API 端点、数据库交互、外部服务 | Go + resty + testify | 20% |
 | L3 | E2E 测试 | 完整用户流程 | Playwright | 10% |
 
 ### 1.3 测试原则
@@ -40,358 +40,279 @@
 
 ---
 
-## 二、单元测试模板
+## 二、Go 集成测试（推荐）
 
-### 2.1 使用 Node.js 内置测试框架
+本项目采用 Go 语言编写 API 集成测试，具有以下优势：
+- 编译型语言，类型安全
+- 并发性能优异
+- 与 API 无关（黑盒测试）
+- 可独立于业务代码运行
 
-```javascript
-// tests/unit/feeService.test.js
-import test from 'node:test';
-import assert from 'node:assert/strict';
+### 2.1 目录结构
 
-import { calcFeeAmount, FeeError } from '../../src/services/feeService.js';
-
-// ============ 基础功能测试 ============
-
-test('calcFeeAmount: 正常计算费用', () => {
-  // amount=10000分, rate=25‱, fixed=10分
-  // 预期: 10000 * 25 / 10000 + 10 = 35分
-  assert.equal(calcFeeAmount(10_000, 25, 10), 35);
-});
-
-test('calcFeeAmount: 处理小数精度', () => {
-  // 10001 * 25 / 10000 = 25.0025 → 四舍五入 = 25
-  assert.equal(calcFeeAmount(10_001, 25, 0), 25);
-});
-
-// ============ 边界条件测试 ============
-
-test('calcFeeAmount: 零金额返回固定费用', () => {
-  assert.equal(calcFeeAmount(0, 25, 10), 10);
-});
-
-test('calcFeeAmount: 非法输入返回0', () => {
-  assert.equal(calcFeeAmount('abc', 'x', 'y'), 0);
-  assert.equal(calcFeeAmount(null, null, null), 0);
-  assert.equal(calcFeeAmount(undefined, undefined, undefined), 0);
-});
-
-// ============ 异常测试 ============
-
-test('FeeError: 费率倒挂应抛出错误', async () => {
-  await assert.rejects(
-    async () => {
-      // 代理费率 < 成本费率
-      throw new FeeError('FEE_INVERSION', '费率倒挂');
-    },
-    (err) => err instanceof FeeError && err.code === 'FEE_INVERSION'
-  );
-});
+```
+tests/go/
+├── go.mod                    # Go 模块定义
+├── testsuite.yaml            # 测试套件配置
+├── internal/
+│   └── testutil/             # 测试工具包
+│       ├── config.go         # 配置加载（API 地址、DB DSN）
+│       └── testutil.go       # 通用工具函数
+├── auth/                     # 认证测试
+│   └── auth_test.go
+├── rbac/                     # 权限测试
+│   └── rbac_test.go
+└── ...                       # 其他模块测试
 ```
 
-### 2.2 使用 Mock 测试 Service
+### 2.2 运行测试
 
-```javascript
-// tests/unit/userService.test.js
-import test from 'node:test';
-import assert from 'node:assert/strict';
+```bash
+# 进入测试目录
+cd tests/go
 
-import { UserService } from '../../src/services/userService.js';
+# 安装依赖
+go mod tidy
 
-// Mock 数据库模型
-const createMockModels = (overrides = {}) => ({
-  User: {
-    findOne: async () => null,
-    findAndCountAll: async () => ({ count: 0, rows: [] }),
-    create: async (data) => ({ id: 1, ...data }),
-    ...overrides.User,
-  },
-  UserRole: {
-    bulkCreate: async () => [],
-    destroy: async () => 1,
-    ...overrides.UserRole,
-  },
-});
+# 运行全部测试（需要先启动 API 服务）
+go test ./... -v
 
-// Mock sequelize
-const mockSequelize = {
-  transaction: async (fn) => fn({}),
-};
+# 运行指定模块
+go test ./auth -v
 
-// ============ 创建用户测试 ============
+# 运行指定用例
+go test ./auth -run TestAuthFlow_LoginAndProfile -v
 
-test('UserService.createUser: 成功创建用户', async () => {
-  const models = createMockModels();
-  const service = new UserService({ models, sequelize: mockSequelize });
-
-  const result = await service.createUser({
-    username: 'testuser',
-    password: 'password123',
-  });
-
-  assert.equal(result.username, 'testuser');
-  assert.ok(result.id);
-});
-
-test('UserService.createUser: 用户名重复应抛出错误', async () => {
-  const models = createMockModels({
-    User: {
-      findOne: async () => ({ id: 1, username: 'exists' }),
-    },
-  });
-  const service = new UserService({ models, sequelize: mockSequelize });
-
-  await assert.rejects(
-    () => service.createUser({ username: 'exists', password: '123' }),
-    /用户名已存在/
-  );
-});
-
-// ============ 查询用户测试 ============
-
-test('UserService.getUserById: 用户不存在应抛出404', async () => {
-  const models = createMockModels({
-    User: {
-      findOne: async () => null,
-    },
-  });
-  const service = new UserService({ models, sequelize: mockSequelize });
-
-  await assert.rejects(
-    () => service.getUserById(999),
-    (err) => err.output?.statusCode === 404
-  );
-});
-
-test('UserService.listUsers: 正确返回分页数据', async () => {
-  const mockUsers = [
-    { id: 1, username: 'user1' },
-    { id: 2, username: 'user2' },
-  ];
-
-  const models = createMockModels({
-    User: {
-      findAndCountAll: async () => ({
-        count: 100,
-        rows: mockUsers,
-      }),
-    },
-  });
-  const service = new UserService({ models, sequelize: mockSequelize });
-
-  const result = await service.listUsers({ page: 1, size: 20 });
-
-  assert.equal(result.total, 100);
-  assert.equal(result.list.length, 2);
-  assert.equal(result.page, 1);
-  assert.equal(result.size, 20);
-});
+# 带数据库直连（用于数据重置）
+go test ./auth -v -args \
+  -api_base=http://127.0.0.1:7100 \
+  -db_dsn='root:password@tcp(127.0.0.1:3306)/scaff_ai'
 ```
 
-### 2.3 测试辅助函数
+### 2.3 测试用例模板
 
-```javascript
-// tests/unit/_helpers.js
+```go
+package auth_test
 
-/**
- * 创建 Mock Request 对象
- */
-export const mockRequest = (overrides = {}) => ({
-  params: {},
-  query: {},
-  payload: {},
-  auth: {
-    credentials: {
-      userId: 1,
-      permissions: [],
-    },
-  },
-  ...overrides,
-});
+import (
+    "net/http"
+    "testing"
 
-/**
- * 断言 Boom 错误
- */
-export const assertBoomError = (err, statusCode, message) => {
-  assert.ok(err.isBoom);
-  assert.equal(err.output.statusCode, statusCode);
-  if (message) {
-    assert.ok(err.message.includes(message));
-  }
-};
+    "github.com/stretchr/testify/require"
+    "scaff-ai/api-tests/internal/testutil"
+)
 
-/**
- * 延时函数
- */
-export const delay = (ms) => new Promise((r) => setTimeout(r, ms));
+func TestAuthFlow_LoginAndProfile(t *testing.T) {
+    c := testutil.Client()
+
+    // 获取管理员 Token
+    token := testutil.EnsureAdminToken(t)
+
+    // 获取用户信息
+    prof := struct {
+        Code int `json:"code"`
+        Data struct {
+            User struct {
+                ID       int64  `json:"id"`
+                Username string `json:"username"`
+            } `json:"user"`
+        } `json:"data"`
+    }{}
+
+    r, err := c.R().
+        SetAuthToken(token).
+        SetResult(&prof).
+        Get("/auth/profile")
+
+    require.NoError(t, err)
+    require.Equal(t, http.StatusOK, r.StatusCode())
+    require.Equal(t, 0, prof.Code)
+    require.Equal(t, "admin", prof.Data.User.Username)
+}
 ```
 
----
+### 2.4 testutil 工具包
 
-## 三、集成测试模板
+#### config.go - 配置管理
 
-### 3.1 使用 Supertest 测试 API
+```go
+// 通过命令行参数传入配置
+// go test ./auth -args -api_base=http://127.0.0.1:7100 -db_dsn='...'
 
-```javascript
-// tests/integration/auth.test.js
-import test from 'node:test';
-import assert from 'node:assert/strict';
-import request from 'supertest';
+var (
+    flagAPIBase = flag.String("api_base", "", "API Base URL")
+    flagDBDSN   = flag.String("db_dsn", "", "MySQL DSN")
+)
 
-import { createServer } from '../../src/server.js';
+func BaseURL() string {
+    if v := *flagAPIBase; v != "" {
+        return v + "/api"
+    }
+    return "http://127.0.0.1:7100/api"
+}
 
-let server;
-let app;
-
-test.before(async () => {
-  server = await createServer();
-  await server.start();
-  app = server.listener;
-});
-
-test.after(async () => {
-  await server.stop();
-});
-
-// ============ 登录测试 ============
-
-test('POST /api/auth/login - 成功登录', async () => {
-  const res = await request(app)
-    .post('/api/auth/login')
-    .send({
-      username: 'admin',
-      password: 'admin123',
-    })
-    .expect(200);
-
-  assert.equal(res.body.code, 0);
-  assert.ok(res.body.data.token);
-  assert.ok(res.body.data.expire_at);
-});
-
-test('POST /api/auth/login - 密码错误', async () => {
-  const res = await request(app)
-    .post('/api/auth/login')
-    .send({
-      username: 'admin',
-      password: 'wrongpassword',
-    })
-    .expect(401);
-
-  assert.notEqual(res.body.code, 0);
-});
-
-test('POST /api/auth/login - 参数验证失败', async () => {
-  const res = await request(app)
-    .post('/api/auth/login')
-    .send({
-      username: 'ab', // 太短
-    })
-    .expect(400);
-
-  assert.notEqual(res.body.code, 0);
-});
-
-// ============ 认证保护测试 ============
-
-test('GET /api/users - 无 Token 返回 401', async () => {
-  await request(app)
-    .get('/api/users')
-    .expect(401);
-});
-
-test('GET /api/users - 有效 Token 返回数据', async () => {
-  // 先登录获取 token
-  const loginRes = await request(app)
-    .post('/api/auth/login')
-    .send({ username: 'admin', password: 'admin123' });
-
-  const token = loginRes.body.data.token;
-
-  const res = await request(app)
-    .get('/api/users')
-    .set('Authorization', `Bearer ${token}`)
-    .expect(200);
-
-  assert.equal(res.body.code, 0);
-  assert.ok(Array.isArray(res.body.data.list));
-});
+func RequireDB(t *testing.T) string {
+    dsn := *flagDBDSN
+    if dsn == "" {
+        t.Skip("未配置 db_dsn，跳过需要直连 DB 的用例")
+    }
+    return dsn
+}
 ```
 
-### 3.2 数据库集成测试
+#### testutil.go - 通用工具
 
-```javascript
-// tests/integration/db.test.js
-import test from 'node:test';
-import assert from 'node:assert/strict';
+```go
+const (
+    TestRootUsername = "admin"
+    TestRootPassword = "admin123"
+)
 
-import { initDatabase } from '../../src/config/database.js';
-import { initModels } from '../../src/models/index.js';
+// Client 返回配置好 BaseURL 的 resty 客户端
+func Client() *resty.Client {
+    return resty.New().SetBaseURL(BaseURL())
+}
 
-let sequelize;
-let models;
+// EnsureAdminToken 确保获取管理员 Token
+func EnsureAdminToken(t *testing.T) string {
+    ResetUserLock(t, TestRootUsername)
+    c := Client()
 
-test.before(async () => {
-  sequelize = await initDatabase();
-  models = initModels(sequelize);
-  // 同步表结构（测试环境）
-  await sequelize.sync({ force: true });
-});
+    loginResp := struct {
+        Code int    `json:"code"`
+        Data struct { Token string `json:"token"` } `json:"data"`
+    }{}
 
-test.after(async () => {
-  await sequelize.close();
-});
+    r, err := c.R().
+        SetBody(map[string]interface{}{
+            "username": TestRootUsername,
+            "password": TestRootPassword,
+        }).
+        SetResult(&loginResp).
+        Post("/auth/login")
 
-test('User 模型: 创建和查询', async () => {
-  const user = await models.User.create({
-    username: 'testuser',
-    password_hash: Buffer.from('hash'),
-    display_name: 'Test User',
-  });
+    require.NoError(t, err)
+    if r.StatusCode() == http.StatusOK && loginResp.Code == 0 {
+        return loginResp.Data.Token
+    }
 
-  assert.ok(user.id);
-  assert.equal(user.username, 'testuser');
+    t.Skipf("无法获取 admin token")
+    return ""
+}
 
-  const found = await models.User.findByPk(user.id);
-  assert.equal(found.username, 'testuser');
-});
+// ResetUserLock 重置用户锁定状态
+func ResetUserLock(t *testing.T, username string) {
+    dsn := DBDSN()
+    if dsn == "" {
+        return
+    }
+    db, _ := sql.Open("mysql", dsn)
+    defer db.Close()
+    db.Exec("UPDATE auth_user SET login_failed_count=0 WHERE username=?", username)
+}
+```
 
-test('User 模型: 软删除', async () => {
-  const user = await models.User.create({
-    username: 'todelete',
-    password_hash: Buffer.from('hash'),
-  });
+### 2.5 testsuite.yaml 配置
 
-  await user.update({ deleted_at: new Date() });
+```yaml
+suites:
+  # 集成测试
+  - id: integration
+    name: 集成测试（API 级）
+    kind: integration
+    cases:
+      - id: integ.auth.login
+        name: 认证：登录与获取用户信息
+        command: ["go", "test", "./auth", "-run", "TestAuthFlow_LoginAndProfile", "-v"]
 
-  const found = await models.User.findOne({
-    where: { username: 'todelete', deleted_at: null },
-  });
+      - id: integ.auth.all
+        name: 认证：全部测试
+        command: ["go", "test", "./auth", "-v"]
 
-  assert.equal(found, null);
-});
+      - id: integ.all
+        name: 集成测试：全部
+        command: ["go", "test", "./...", "-v"]
+
+  # 链路测试
+  - id: flow
+    name: 链路测试（E2E）
+    kind: flow
+    cases:
+      - id: flow.auth.basic
+        name: 认证链路：登录→获取信息→登出
+        command: ["go", "test", "./auth", "-run", "TestAuthFlow_", "-v"]
 ```
 
 ---
 
-## 四、E2E 测试模板
+## 三、单元测试模板（API 模块内部）
 
-### 4.1 Playwright 配置
+### 3.1 使用 Bun 内置测试框架
 
 ```typescript
-// playwright.config.ts
+// api/src/utils/crypto.test.ts
+import { describe, test, expect } from "bun:test";
+import { hashPassword, verifyPassword } from "./crypto";
+
+describe("crypto utils", () => {
+  test("hashPassword 生成有效的 bcrypt 哈希", async () => {
+    const hash = await hashPassword("password123");
+    expect(hash).toMatch(/^\$2[ab]\$\d+\$/);
+  });
+
+  test("verifyPassword 验证正确密码", async () => {
+    const hash = await hashPassword("password123");
+    const result = await verifyPassword("password123", hash);
+    expect(result).toBe(true);
+  });
+
+  test("verifyPassword 拒绝错误密码", async () => {
+    const hash = await hashPassword("password123");
+    const result = await verifyPassword("wrongpassword", hash);
+    expect(result).toBe(false);
+  });
+});
+```
+
+### 3.2 运行单元测试
+
+```bash
+cd api
+bun test
+```
+
+---
+
+## 四、E2E 测试模板（Playwright）
+
+### 4.1 目录结构
+
+```
+tests/e2e/
+├── package.json
+├── playwright.config.ts
+├── tests/
+│   ├── auth.spec.ts
+│   └── dashboard.spec.ts
+└── pages/
+    └── LoginPage.ts
+```
+
+### 4.2 Playwright 配置
+
+```typescript
+// tests/e2e/playwright.config.ts
 import { defineConfig, devices } from '@playwright/test';
 
 export default defineConfig({
-  testDir: './tests/e2e',
+  testDir: './tests',
   fullyParallel: true,
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 2 : 0,
-  workers: process.env.CI ? 1 : undefined,
   reporter: 'html',
 
   use: {
-    baseURL: 'http://localhost:3000',
+    baseURL: 'http://localhost:7101',
     trace: 'on-first-retry',
     screenshot: 'only-on-failure',
   },
@@ -402,207 +323,59 @@ export default defineConfig({
       use: { ...devices['Desktop Chrome'] },
     },
   ],
-
-  webServer: {
-    command: 'npm run dev',
-    url: 'http://localhost:3000',
-    reuseExistingServer: !process.env.CI,
-  },
 });
 ```
 
-### 4.2 E2E 测试用例
+### 4.3 E2E 测试用例
 
 ```typescript
-// tests/e2e/auth.spec.ts
+// tests/e2e/tests/auth.spec.ts
 import { test, expect } from '@playwright/test';
 
 test.describe('用户认证流程', () => {
   test('成功登录并跳转到仪表盘', async ({ page }) => {
     await page.goto('/login');
-
-    // 填写登录表单
     await page.fill('input[name="username"]', 'admin');
     await page.fill('input[name="password"]', 'admin123');
     await page.click('button[type="submit"]');
-
-    // 验证跳转到仪表盘
-    await expect(page).toHaveURL('/dashboard');
-    await expect(page.locator('h1')).toContainText('仪表盘');
+    await expect(page).toHaveURL('/');
+    await expect(page.locator('h1')).toContainText('控制台');
   });
 
   test('登录失败显示错误提示', async ({ page }) => {
     await page.goto('/login');
-
     await page.fill('input[name="username"]', 'admin');
     await page.fill('input[name="password"]', 'wrongpassword');
     await page.click('button[type="submit"]');
-
-    // 验证错误提示
     await expect(page.locator('.ant-message-error')).toBeVisible();
   });
-
-  test('未登录访问受保护页面跳转到登录页', async ({ page }) => {
-    await page.goto('/users');
-    await expect(page).toHaveURL('/login');
-  });
-
-  test('登出后跳转到登录页', async ({ page }) => {
-    // 先登录
-    await page.goto('/login');
-    await page.fill('input[name="username"]', 'admin');
-    await page.fill('input[name="password"]', 'admin123');
-    await page.click('button[type="submit"]');
-    await expect(page).toHaveURL('/dashboard');
-
-    // 点击登出
-    await page.click('[data-testid="user-menu"]');
-    await page.click('[data-testid="logout-btn"]');
-
-    await expect(page).toHaveURL('/login');
-  });
-});
-```
-
-### 4.3 页面对象模式
-
-```typescript
-// tests/e2e/pages/LoginPage.ts
-import { Page, Locator } from '@playwright/test';
-
-export class LoginPage {
-  readonly page: Page;
-  readonly usernameInput: Locator;
-  readonly passwordInput: Locator;
-  readonly submitButton: Locator;
-  readonly errorMessage: Locator;
-
-  constructor(page: Page) {
-    this.page = page;
-    this.usernameInput = page.locator('input[name="username"]');
-    this.passwordInput = page.locator('input[name="password"]');
-    this.submitButton = page.locator('button[type="submit"]');
-    this.errorMessage = page.locator('.ant-message-error');
-  }
-
-  async goto() {
-    await this.page.goto('/login');
-  }
-
-  async login(username: string, password: string) {
-    await this.usernameInput.fill(username);
-    await this.passwordInput.fill(password);
-    await this.submitButton.click();
-  }
-}
-
-// 使用示例
-// tests/e2e/login.spec.ts
-import { test, expect } from '@playwright/test';
-import { LoginPage } from './pages/LoginPage';
-
-test('使用 Page Object 登录', async ({ page }) => {
-  const loginPage = new LoginPage(page);
-  await loginPage.goto();
-  await loginPage.login('admin', 'admin123');
-  await expect(page).toHaveURL('/dashboard');
 });
 ```
 
 ---
 
-## 五、测试数据管理
+## 五、测试覆盖率
 
-### 5.1 测试 Fixtures
-
-```javascript
-// tests/fixtures/users.js
-export const testUsers = {
-  admin: {
-    id: 1,
-    username: 'admin',
-    password: 'admin123',
-    role: 'admin',
-  },
-  normalUser: {
-    id: 2,
-    username: 'user1',
-    password: 'user123',
-    role: 'user',
-  },
-};
-
-export const createTestUser = async (models, overrides = {}) => {
-  const bcrypt = await import('bcrypt');
-  const passwordHash = await bcrypt.hash('password123', 10);
-
-  return models.User.create({
-    username: `test_${Date.now()}`,
-    password_hash: passwordHash,
-    display_name: 'Test User',
-    status: 1,
-    ...overrides,
-  });
-};
-```
-
-### 5.2 数据库清理
-
-```javascript
-// tests/helpers/dbCleanup.js
-export const cleanupTestData = async (sequelize) => {
-  // 按依赖顺序删除
-  const tables = [
-    'user_roles',
-    'users',
-    'roles',
-    // ...
-  ];
-
-  for (const table of tables) {
-    await sequelize.query(`DELETE FROM ${table} WHERE id > 100`);
-  }
-};
-
-export const resetAutoIncrement = async (sequelize, table, value = 101) => {
-  await sequelize.query(`ALTER TABLE ${table} AUTO_INCREMENT = ${value}`);
-};
-```
-
----
-
-## 六、测试覆盖率
-
-### 6.1 Node.js 内置覆盖率
+### 5.1 Bun 测试覆盖率
 
 ```bash
-# 运行测试并生成覆盖率报告
-node --test \
-  --experimental-test-coverage \
-  --test-coverage-exclude=tests/** \
-  --test-coverage-lines=80 \
-  --test-coverage-functions=80 \
-  --test-coverage-branches=80 \
-  tests/**/*.test.js
+cd api
+bun test --coverage
 ```
 
-### 6.2 package.json 脚本
+### 5.2 Go 测试覆盖率
 
-```json
-{
-  "scripts": {
-    "test": "node --test tests/**/*.test.js",
-    "test:coverage": "node --test --experimental-test-coverage --test-coverage-exclude=tests/** tests/**/*.test.js",
-    "test:watch": "node --test --watch tests/**/*.test.js"
-  }
-}
+```bash
+cd tests/go
+go test ./... -cover -coverprofile=coverage.out
+go tool cover -html=coverage.out -o coverage.html
 ```
 
 ---
 
-## 七、CI 集成
+## 六、CI 集成
 
-### 7.1 GitHub Actions
+### 6.1 GitHub Actions
 
 ```yaml
 # .github/workflows/test.yml
@@ -611,23 +384,23 @@ name: Test
 on: [push, pull_request]
 
 jobs:
-  test:
+  unit-test:
     runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+      - run: cd api && bun install && bun test
 
+  integration-test:
+    runs-on: ubuntu-latest
     services:
       mysql:
         image: mysql:8.0
         env:
           MYSQL_ROOT_PASSWORD: root
-          MYSQL_DATABASE: test_db
+          MYSQL_DATABASE: scaff_ai
         ports:
           - 3306:3306
-        options: >-
-          --health-cmd="mysqladmin ping"
-          --health-interval=10s
-          --health-timeout=5s
-          --health-retries=3
-
       redis:
         image: redis:7-alpine
         ports:
@@ -635,13 +408,34 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
-
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-go@v5
         with:
-          node-version: '20'
-          cache: 'npm'
+          go-version: '1.23'
 
-      - run: npm ci
-      - run: npm run test:unit
-      - run: npm run test:e2e
+      # 启动 API 服务
+      - uses: oven-sh/setup-bun@v2
+      - run: |
+          cd api
+          bun install
+          bun run dev &
+          sleep 5
+
+      # 运行集成测试
+      - run: |
+          cd tests/go
+          go mod tidy
+          go test ./... -v -args \
+            -api_base=http://127.0.0.1:7100 \
+            -db_dsn='root:root@tcp(127.0.0.1:3306)/scaff_ai'
 ```
+
+---
+
+## 七、最佳实践
+
+1. **测试命名**：使用 `Test<模块>_<场景>_<预期结果>` 格式
+2. **数据隔离**：每个测试用例应独立，不依赖其他用例的数据
+3. **清理机制**：使用 `t.Cleanup()` 确保测试数据被清理
+4. **跳过机制**：对于依赖外部环境的测试，合理使用 `t.Skip()`
+5. **并行执行**：Go 测试默认并行，注意数据竞争
+6. **Mock 策略**：单元测试 Mock，集成测试用真实服务

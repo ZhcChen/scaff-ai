@@ -53,9 +53,14 @@ project-root/
 │       ├── types/                # 共享类型
 │       └── utils/                # 共享工具
 │
-├── tests/                        # 集成/E2E 测试
-│   ├── e2e/                      # Playwright E2E
-│   └── integration/              # 集成测试
+├── tests/                        # 测试模块
+│   ├── go/                       # Go 集成测试
+│   │   ├── go.mod                # Go 模块定义
+│   │   ├── testsuite.yaml        # 测试套件配置
+│   │   ├── internal/testutil/    # 测试工具包
+│   │   ├── auth/                 # 认证测试
+│   │   └── rbac/                 # 权限测试
+│   └── e2e/                      # Playwright E2E
 │
 ├── docker/                       # Docker 配置
 │   ├── docker-compose.yml

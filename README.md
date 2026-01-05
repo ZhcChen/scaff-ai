@@ -9,6 +9,8 @@ scaff-ai/
 ├── api/          # 后端 API (Bun + Elysia + Drizzle) - 端口 7100
 ├── admin/        # 管理后台 (React + Vite + Ant Design) - 端口 7101
 ├── web-app/      # 前端应用 (Nuxt.js) - 端口 7102
+├── tests/        # 测试模块
+│   └── go/       # Go 集成测试
 └── docs/         # 文档
 ```
 
@@ -50,6 +52,7 @@ bun run dev:web-app  # 前端应用 http://localhost:7102
 - **后端**：Bun + Elysia + Drizzle ORM + MySQL + Redis
 - **管理后台**：React + Vite + Ant Design + Zustand
 - **前端应用**：Nuxt.js 3 + Vue 3
+- **集成测试**：Go + resty + testify
 
 ## 端口映射
 
@@ -58,6 +61,41 @@ bun run dev:web-app  # 前端应用 http://localhost:7102
 | API | 7100 |
 | Admin | 7101 |
 | Web App | 7102 |
+
+## 测试
+
+### 运行集成测试
+
+```bash
+# 确保 API 服务已启动
+cd tests/go
+go mod tidy
+go test ./... -v
+```
+
+### 运行指定测试
+
+```bash
+# 认证模块测试
+go test ./auth -v
+
+# 指定用例
+go test ./auth -run TestAuthFlow_LoginAndProfile -v
+
+# 带数据库直连
+go test ./auth -v -args \
+  -api_base=http://127.0.0.1:7100 \
+  -db_dsn='root:password@tcp(127.0.0.1:3306)/scaff_ai'
+```
+
+## 文档
+
+详细文档请查看 [docs/](./docs/) 目录：
+
+- [01-quick-start.md](./docs/01-quick-start.md) - 快速开始
+- [02-tech-stack.md](./docs/02-tech-stack.md) - 技术栈说明
+- [03-directory-structure.md](./docs/03-directory-structure.md) - 目录结构
+- [07-testing.md](./docs/07-testing.md) - 测试策略
 
 ## 许可证
 

@@ -1,0 +1,72 @@
+suites:
+  # 单元测试（预留，后续可挂载纯函数测试）
+  - id: unit
+    name: 单元测试（预留）
+    kind: unit
+    cases: []
+
+  # 集成测试：API 级，依赖已启动的 api 服务
+  - id: integration
+    name: 集成测试（API 级）
+    kind: integration
+    cases:
+      # === 认证模块 ===
+      - id: integ.auth.login_profile
+        name: 认证：登录与获取用户信息
+        command: ["go", "test", "./auth", "-run", "TestAuthFlow_LoginAndProfile", "-v"]
+      - id: integ.auth.login_failure
+        name: 认证：登录失败场景
+        command: ["go", "test", "./auth", "-run", "TestAuthFlow_LoginFailure", "-v"]
+      - id: integ.auth.logout
+        name: 认证：登出流程
+        command: ["go", "test", "./auth", "-run", "TestAuthFlow_Logout", "-v"]
+      - id: integ.auth.unauthorized
+        name: 认证：未授权访问
+        command: ["go", "test", "./auth", "-run", "TestAuthFlow_UnauthorizedAccess", "-v"]
+      - id: integ.auth.invalid_token
+        name: 认证：无效 Token
+        command: ["go", "test", "./auth", "-run", "TestAuthFlow_InvalidToken", "-v"]
+      - id: integ.auth.all
+        name: 认证：全部测试
+        command: ["go", "test", "./auth", "-v"]
+
+      # === RBAC 权限模块 ===
+      - id: integ.rbac.list_users
+        name: RBAC：获取用户列表
+        command: ["go", "test", "./rbac", "-run", "TestRBAC_ListUsers", "-v"]
+      - id: integ.rbac.list_roles
+        name: RBAC：获取角色列表
+        command: ["go", "test", "./rbac", "-run", "TestRBAC_ListRoles", "-v"]
+      - id: integ.rbac.list_permissions
+        name: RBAC：获取权限列表
+        command: ["go", "test", "./rbac", "-run", "TestRBAC_ListPermissions", "-v"]
+      - id: integ.rbac.create_role
+        name: RBAC：创建角色
+        command: ["go", "test", "./rbac", "-run", "TestRBAC_CreateRole", "-v"]
+      - id: integ.rbac.all
+        name: RBAC：全部测试
+        command: ["go", "test", "./rbac", "-v"]
+
+      # === 全量测试 ===
+      - id: integ.all
+        name: 集成测试：全部
+        command: ["go", "test", "./...", "-v"]
+
+  # 链路测试：完整业务流程
+  - id: flow
+    name: 链路测试（E2E）
+    kind: flow
+    cases:
+      - id: flow.auth.basic
+        name: 认证链路：登录→获取信息→登出
+        command: ["go", "test", "./auth", "-run", "TestAuthFlow_", "-v"]
+
+  # 前端 UI E2E：预留 Playwright
+  - id: ui
+    name: 前端 UI E2E（Playwright）
+    kind: ui
+    cases: []
+    # 预留：
+    # - id: ui.admin.smoke
+    #   name: Admin：UI 冒烟测试
+    #   command: ["npm", "--prefix", "../e2e", "test"]
