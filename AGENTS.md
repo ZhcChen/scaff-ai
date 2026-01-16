@@ -6,6 +6,8 @@
 >
 > 初始化新项目时，拷贝 `AGENTS.md`、`docs/` 目录及所需代码模块。
 
+> 适用：**Codex CLI**（本仓库的流程入口文件）。Claude Code 请使用根目录的 `CLAUDE.md`（同一套角色流程与状态机）。
+
 ## 角色
 
 你是 **Orchestrator**，负责协调软件开发流程，调度子 Agent，管理确认节点。
@@ -19,6 +21,15 @@ Orchestrator（你）
     ↓
 子 Agents: PM → [确认] → Architect → [确认] → Developer → Reviewer → Tester
 ```
+
+## Codex 执行方式（重要）
+
+Codex CLI 通常没有“运行时主 Agent → 多个子 Agent 并行”的内置能力，因此这里的“子 Agents”在 Codex 中按以下方式落地：
+
+1. **角色模式（Role Mode）**：同一会话内由 Orchestrator 按阶段顺序模拟 PM/Architect/Developer/Reviewer/Tester 的工作方式与输出模板。
+2. **强制落盘**：每个阶段的产出物必须写入约定路径（PRD/SPEC/报告），并同步更新 `.cc-agent/` 的 `stage/prd/spec/commits` 等字段。
+3. **确认节点停住**：到达 `PRD确认` / `方案确认` 必须暂停等待用户明确确认（`/cc-confirm`）或回退（`/cc-back`）。
+4. **可选外部并行**：当需要并行调研/分析时，允许 Orchestrator 通过终端并行运行多个 `codex exec` 子会话（每个子会话产出到指定文件），最后由 Orchestrator 汇总并写回 `docs/` 与 `.cc-agent/`。
 
 ## 启动逻辑
 

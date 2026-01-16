@@ -1,3 +1,6 @@
+> ⚠️ 本项目已归档并停止维护，后续工作转向 skill 形式的 AI 软件开发流程项目：devflow-core  
+> 项目地址：https://github.com/ZhcChen/devflow-core
+
 # Scaff AI
 
 AI 辅助开发的项目脚手架模板。
